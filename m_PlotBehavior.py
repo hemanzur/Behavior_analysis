@@ -5,45 +5,31 @@
 ## Module Initialization Routine
 
 import os, sys, re
-import statistics as stats
-from scipy.stats import probplot, norm
+from datetime import datetime as dtm
+from m_NeuralPlot import rasterPlot
+
+from scipy.stats import probplot, norm, gaussian_kde
 from scipy.optimize import curve_fit
+
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 from matplotlib import rc
 import numpy as np
+
+from PyQt4 import QtGui, QtCore
+
+import guidata
 import guidata.dataset.datatypes as dt
 import guidata.dataset.dataitems as di
-from PyQt4 import QtGui, QtCore
-import guidata
-app=guidata.qapplication()
+app = guidata.qapplication()
 
 import m_bhvfuncs as bhv
-'''
-import __main__
 
-if hasattr(__main__, 'BhvDir') or\
-   hasattr(__main__, 'MPCDir') or\
-   hasattr(__main__, 'ImgDir'):
-    BhvDir  = __main__.BhvDir
-    MPCDir  = __main__.MPCDir
-    ImgDir  = __main__.ImgDir
-else:
-    class SelDir(dt.DataSet):
-        """Select the directories to work with"""
-        MPCDir  = di.DirectoryItem(label='MPC Files Dir', default = os.environ['HOME']).set_pos(col=1)
-        BhvDir  = di.DirectoryItem(label='Beh Files Dir', default = os.environ['HOME']).set_pos(col=0)
-        ImgDir  = di.DirectoryItem(label='ImgDir', default = os.environ['HOME']).set_pos(col=0)
-    
-    SelDirs = SelDir()
-    if SelDirs.edit()==1:
-        ImgDir  = SelDirs.ImgDir
-        BhvDir  = SelDirs.BhvDir
-        MPCDir  = SelDirs.MPCDir
-'''
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavToolbar
 from matplotlib.figure import Figure
+
+import ipdb
 
 # MPL Widget Class to embed in Qt
 class MplWidget(FigCanvas):
@@ -54,7 +40,9 @@ class MplWidget(FigCanvas):
         FigCanvas.__init__(self, self.fig)
         if parent: self.setParent(parent)
 
-        FigCanvas.setSizePolicy(self, QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Expanding)
+        FigCanvas.setSizePolicy(self,
+                                QtGui.QSizePolicy.Expanding,
+                                QtGui.QSizePolicy.Expanding)
         FigCanvas.updateGeometry(self)
         
 ########################################################################################################################
@@ -65,7 +53,7 @@ def PlotLATER(Data=[], ax=[], OutlierCalc = 'pctile', PlotMiss=False,
     if not Data: return
 
     # create a function to pass as parameter for the line fit
-    def LineFuncFit(x,m,n): return m*x+n
+    def LineFuncFit(x, m, n): return m*x+n
 
     # x values vector for the fit
     xVal = np.linspace(-50,10)
@@ -116,7 +104,7 @@ def PlotLATER(Data=[], ax=[], OutlierCalc = 'pctile', PlotMiss=False,
 
         if ShowEq:
             bp = dict(boxstyle="round", alpha=0.7, fc='w', ec=[.5,.5,.5])
-            ax.text(-9,0,r'$y_{Hits}=%0.2fx + %0.2f$' % (m,n), fontsize = 20, bbox = bp)
+            ax.text(-9,0,r'$y_{Hits}=%0.2fx + %0.2f$' % (m, n), fontsize = 20, bbox = bp)
 
     # set limits
     ax.set_xlim(-8,0)
@@ -150,8 +138,6 @@ def PlotLATER(Data=[], ax=[], OutlierCalc = 'pctile', PlotMiss=False,
 
 def PlotDensityFuncs(pth = ''):
     '''Examine the CDFs and/or PDFs of each RT'''
-    from matplotlib import rc
-    import statistics as stats
 
     if not pth:
         pth = str(QtGui.QFileDialog.getExistingDirectory(caption = 'Beh Files Directory'))
@@ -182,7 +168,11 @@ def PlotDensityFuncs(pth = ''):
                 Data = bhv.GetBhvParams(Data)
             if Data.has_key('Stim0'):
                 Stim0.append(Data['Stim0'])
-            if Data.has_key('Stim1') and Data['Stim1'].has_key('RTT') and Data['Stim1'].has_key('RT1') and Data['Stim1'].has_key('RT2') and Data['Stim1'].has_key('RT3'):
+            if Data.has_key('Stim1') and\
+             Data['Stim1'].has_key('RTT') and\
+              Data['Stim1'].has_key('RT1') and\
+               Data['Stim1'].has_key('RT2') and\
+                Data['Stim1'].has_key('RT3'):
                 Stim1.append(Data['Stim1'])
         
         rc('font',size=9, family='monospace', serif='Bitstream Vera Sans Mono')
@@ -195,34 +185,46 @@ def PlotDensityFuncs(pth = ''):
 
         if Params.CDF:
             plt.figure(dpi=100,facecolor='w')
+            
             for m,n in enumerate(keys):
                 m = m+1
-                plt.subplot(2,2,m)
+                plt.subplot(2, 2, m)
+                
                 for j,k in enumerate(Stim0):
                     if k[n].size>1:
-                        y,x=stats.cpdf(k[n])
-                        if Params.Norm==1: y=y/sum(y)
+                        kernel = gaussian_kde(k[n])
+                        x = np.linspace(k[n].min(), k[n].min(), 100)
+                        y = np.cumsum(kernel(x))
+                        y = y/y[-1]
+                        #if Params.Norm==1: y=y/sum(y)
                         plt.plot(x,y,color=[r[j],0,b[j]])
+                        
                 plt.title(n+' n='+str(nS)+' sessions')
                 plt.xlim(-0.2,3)
+
                 if m in [1,3]:
                     if Params.Norm==1: plt.ylabel('Probabilty')
                     else: plt.ylabel('Count')
                 if m in [3,4]:
                     plt.xlabel('Time (sec)')
+
                 plt.grid()
+
             plt.title(RatName + ' ' + Params.Task)
             plt.tight_layout()
 
         if Params.PDF:
-            plt.figure(RatName,dpi=100,facecolor='w')
+            plt.figure(RatName, dpi=100, facecolor='w')
             for m,n in enumerate(keys):
                 m=m+1
                 plt.subplot(2,2,m)
                 for j,k in enumerate(Stim0):
                     if k[n].size>1:
-                        y,x=stats.pdf(k[n])
-                        if Params.Norm==1: y=y/sum(y)
+                        kernel = gaussian_kde(k[n])
+                        x = np.linspace(k[n].min(), k[n].min(), 100)
+                        y = kernel(x)
+                        
+                        #if Params.Norm==1: y=y/sum(y)
                         plt.plot(x,y,color=[r[j],0,b[j]])
                 plt.title(n+' n='+str(nS)+' sessions')
                 plt.xlim(-0.2,3)
@@ -242,7 +244,7 @@ def RxTimeEvolution(pth = ''):
     
     import scipy.stats as st
     
-    ratNames = bhv.GetRatNames(prefix = 'HMV', pth = BhvDir)
+    ratNames = bhv.GetRatNames(prefix = 'HMV', pth = pth)
     class SetParams(dt.DataSet):
         RatName   = di.ChoiceItem('Choose a Rat', tuple(ratNames))
         Task      = di.StringItem('Regular Expr','(NP0[0-9]A?.beh)')
@@ -253,7 +255,7 @@ def RxTimeEvolution(pth = ''):
     if Params.edit()==1:
         RatName  = ratNames[Params.RatName]
         Task     = Params.Task
-        files, _ = bhv.GetFilenames(RatName, RegExp=Task, BhvDir = BhvDir)
+        files, _ = bhv.GetFilenames(RatName, RegExp=Task, BhvDir = pth)
         FigHandles=[]
         Dates=[]; Stims={}
         for k in range(10):
@@ -402,101 +404,7 @@ def RxTimeEvolution(pth = ''):
 
 ########################################################################################################################
 
-def BhvRasters(Data, StimID, Event2Plot=['Hits','Miss','Error'][0], ax=[],
-               TWin=[1,4], Legend=True, SortBy='RT1'):
-
-    if Data.has_key(StimID):
-        Stim=Data[StimID]
-    else:
-        print 'There is no StimID key in the Data you provided !'
-        return
-    
-    from matplotlib.axes import Axes
-    
-    # If Event2Plot is empty display a GUI to select the aproproate stim in data
-    if not Event2Plot:
-        class SelectEvent(dt.DataSet):
-            sel =di.ChoiceItem(label='Select a Stim', choices=[(j+1,k) for j,k in enumerate(['Hits','Miss','Error'])])
-
-        Sel = SelectEvent()
-        if Sel.edit()==1:
-            Event2Plot = ['Hits','Miss','Error'][Sel.sel]
-    
-    #Check whether ax is a valid axis. If not create one
-    if not ax or not isinstance(ax, Axes):
-        from matplotlib import rc
-        ax=plt.subplot(111)
-        rc('font', size=10)
-        rc('font', family='monospace')
-        rc('font', serif='Bitstream Vera Sans Mono')
-    else:
-        plt.axes(ax)
-        
-    mew=2
-
-    if bhv.GetMapping(Data)==2:
-
-        nStims= len(Stim['StimTS'])
-        NpIn  = np.ndarray( nStims, dtype=np.object )
-        NpOut = np.ndarray( nStims, dtype=np.object )
-        RpIn  = np.ndarray( nStims, dtype=np.object )
-        Lick  = np.ndarray( nStims, dtype=np.object )
-        Solnd = np.ndarray( nStims, dtype=np.object )
-
-        if Stim['Descr']!='Catch':
-            Rport = 'HRpIn'
-            LickK = 'HLick'
-        else:
-            Rport = 'RpIn'
-            LickK = 'Lick'
-            
-        for j,k in enumerate(Stim['StimTS']):
-            NpIn [j] = Stim['NpIn' ][ ( Stim['NpIn' ] > k - TWin[0] ) & ( Stim['NpIn' ] < k + TWin[1] ) ] - k
-            NpOut[j] = Stim['NpOut'][ ( Stim['NpOut'] > k - TWin[0] ) & ( Stim['NpOut'] < k + TWin[1] ) ] - k
-            RpIn [j] = Stim[ Rport ][ ( Stim[ Rport ] > k - TWin[0] ) & ( Stim[ Rport ] < k + TWin[1] ) ] - k
-            Lick [j] = Stim[ LickK ][ ( Stim[ LickK ] > k - TWin[0] ) & ( Stim[ LickK ] < k + TWin[1] ) ] - k
-        
-        if Stim.has_key('Solnd'):
-            for j,k in enumerate(Stim['StimTS']):
-                if np.any(( Stim['Solnd'] > k - TWin[0] ) & ( Stim['Solnd'] < k + TWin[1] )):
-                    Solnd [j] = Stim['Solnd'][ ( Stim['Solnd'] > k - TWin[0] ) & ( Stim['Solnd'] < k + TWin[1] ) ] - k
-
-        for k in range(nStims):
-            j=k+1
-            if len(Lick [k]) > 0 : a,=plt.plot(Lick [k], j*np.ones_like(Lick [k]), '|k', alpha=0.5)
-            if len(NpIn [k]) > 0 : b,=plt.plot(NpIn [k], j*np.ones_like(NpIn [k]), '|b',mew=mew)
-            if len(NpOut[k]) > 0 : c,=plt.plot(NpOut[k], j*np.ones_like(NpOut[k]), '|c',mew=mew)
-            if len(RpIn [k]) > 0 : d,=plt.plot(RpIn [k], j*np.ones_like(RpIn [k]), '|g',mew=mew)
-
-        for k in range(nStims):
-            if np.any(Solnd[k]):
-                j=k+1
-                e,=plt.plot(Solnd[k], j*np.ones_like(Solnd[k]), '|r',mew=mew)
-
-        s, = plt.plot(np.zeros_like( range(nStims)),
-                  np.arange(len(Stim['StimTS'])), '|k', mec='k', mew=2)
-
-        plt.xlim(-TWin[0], TWin[1])
-        plt.xticks(fontsize=8)
-        plt.yticks(fontsize=8)
-        plt.ylim(0, nStims)
-        if Legend:
-            plt.legend([a,b,c,d,e,s],
-                       ['Lick','NosePoke In','NosePoke Out','Resp Port In','Slnd','Stim'],
-                   fancybox=True)
-        plt.title('All trials,\nCronological order'+' '+str(StimID), fontsize=10)
-        plt.xlabel('Time (sec)')
-        ax.invert_yaxis()
-
-    else:
-        pass
-    
-    
-########################################################################################################################
-
 def Raster2(Stim, Event, TWin=[1,4], axes=[], yAxVar = 'Trial', color='k', mew=1, alpha=1):
-
-    from matplotlib.axes import Axes
 
     if not axes:
         axes=plt.subplot(111)
@@ -518,13 +426,44 @@ def Raster2(Stim, Event, TWin=[1,4], axes=[], yAxVar = 'Trial', color='k', mew=1
     
     axes.plot(Event2, y,'|', color=color, mew=mew, alpha=alpha, rasterized = True)
     axes.set_xlim(-TWin[0], TWin[1])
+    
+########################################################################################################################
+
+def Raster3(Stim, EventTS, TWin=[1.0,4.0], ax=[], yAxVar = 'Trial', color='k', lw=1, alpha=1):
+    '''Makes use of the new eventplot function in matplotlib 1.3'''
+
+    if not ax:
+        ax=plt.subplot(111)
+    elif not isinstance(ax, Axes):
+        ax=plt.subplot(111)
+    #pdb.set_trace()
+    Event2 = []
+    y = []
+    if yAxVar == 'Trial':
+        for j,k in enumerate(Stim):
+            tmp = EventTS[( EventTS > k - TWin[0] ) & ( EventTS < k + TWin[1] )] -k
+            if tmp.size > 0:
+                Event2.append(tmp)
+            else:
+                Event2.append(np.array(100, ndmin = 1))
+                #Event2.append(None)
+            y.append(j)
+    elif yAxVar == 'Time':
+        for k in Stim:
+            tmp = EventTS[( EventTS > k - TWin[0] ) & ( EventTS < k + TWin[1] )] -k
+            Event2.append(tmp)
+            y.append(k)
+    
+    rasterPlot(Event2, ax=ax, color = color, lw = lw, alpha = alpha)
+    #ax.eventplot(Event2, lineoffsets = y, colors=[color], alpha = alpha, lw = lw)
+    ax.set_xlim(-TWin[0], TWin[1])
 
 ########################################################################################################################
 
 class Settings(dt.DataSet):
     '''Select the paramters to save the currently active figure'''
-    BhvDir  = di.DirectoryItem(label='Beh Files Dir')
-    ImgDir  = di.DirectoryItem(label='Directory 2 save')
+    BhvDir  = di.DirectoryItem(label='Beh Dir')
+    ImgDir  = di.DirectoryItem(label='Img Dir')
     Format  = di.ChoiceItem(label='Format', choices=[('.jpg','.jpg'),('.png','.png'),('.svg','.svg'),('.pdf','.pdf')])
     dpi     = di.IntItem(label='dpi', default=300, min=50, max=600, nonzero=True, slider=True)
     
@@ -567,7 +506,7 @@ class BhvRasters(QtGui.QMainWindow):
         vlay.setMargin(2)
         hlay = QtGui.QHBoxLayout()
         self.RegExpEdit = QtGui.QLineEdit(self.main_widget)
-        self.RegExpEdit.setText('NP04A.beh')
+        self.RegExpEdit.setText('NP04A_(6K|CentWht)R_12KL')
         hlay.addWidget(QtGui.QLabel('RegExp',self))
         hlay.addWidget(self.RegExpEdit)
         vlay.addLayout(hlay)
@@ -630,23 +569,19 @@ class BhvRasters(QtGui.QMainWindow):
         hlay.addStretch(1)
         
         self.TWin1 = QtGui.QDoubleSpinBox(self.main_widget)
-        self.TWin1.setMinimum(0.0)
-        self.TWin1.setMaximum(4.0)
+        self.TWin1.setRange(0.0, 4.0)
         self.TWin1.setSingleStep(0.1)
         self.TWin1.setValue(1.0)
-        self.TWin1.setMinimumWidth(60)
-        self.TWin1.setMaximumWidth(60)
+        self.TWin1.setFixedWidth(60)
         hlay.addWidget(QtGui.QLabel('TWIN1'))
         hlay.addWidget(self.TWin1)
         hlay.addStretch(1)
         
         self.TWin2 = QtGui.QDoubleSpinBox(self.main_widget)
-        self.TWin2.setMinimum(0.1)
-        self.TWin2.setMaximum(10)
+        self.TWin2.setRange(0.1, 10.0)
         self.TWin2.setSingleStep(0.1)
         self.TWin2.setValue(4.0)
-        self.TWin2.setMinimumWidth(60)
-        self.TWin2.setMaximumWidth(60)
+        self.TWin2.setFixedWidth(60)
         hlay.addWidget(QtGui.QLabel('TWIN2'))
         hlay.addWidget(self.TWin2)
         vlay.addLayout(hlay)
@@ -657,8 +592,7 @@ class BhvRasters(QtGui.QMainWindow):
         hlay.addWidget(QtGui.QLabel('Kernel Type'))
         hlay.addWidget(self.KernelType)
         self.KernelSize = QtGui.QSpinBox()
-        self.KernelSize.setMinimum(60)
-        self.KernelSize.setMaximum(1000)
+        self.KernelSize.setRange(60, 1000)
         self.KernelSize.setValue(240)
         hlay.addStretch(1)
         hlay.addWidget(QtGui.QLabel('Kern Size'))
@@ -673,16 +607,14 @@ class BhvRasters(QtGui.QMainWindow):
         hlay.addWidget(self.RTPlotTypeCombo)
         hlay.addStretch(1)
         self.HistTWin = QtGui.QDoubleSpinBox()
-        self.HistTWin.setMinimum(0.1)
-        self.HistTWin.setMaximum(10)
+        self.HistTWin.setRange(0.1, 10.0)
         self.HistTWin.setValue(2.0)
         self.HistTWin.setSingleStep(0.1)
         hlay.addWidget(QtGui.QLabel('HistTWin'))
         hlay.addWidget(self.HistTWin)
         hlay.addStretch(1)
         self.HistNBins = QtGui.QSpinBox()
-        self.HistNBins.setMinimum(0)
-        self.HistNBins.setMaximum(100)
+        self.HistNBins.setRange(0, 100)
         self.HistNBins.setValue(20)
         hlay.addWidget(QtGui.QLabel('NBins'))
         hlay.addWidget(self.HistNBins)
@@ -715,7 +647,8 @@ class BhvRasters(QtGui.QMainWindow):
             self.PlotTypeTable.setCellWidget(k,0,self.PlotTypeCombo[-1])
 
             self.Stim2PlotCombo.append(QtGui.QComboBox(self))
-            self.Stim2PlotCombo[-1].addItems(['Stim0', 'Stim1', 'Stim2'])
+            for n in ['Stim0', 'Stim1', 'Stim2']:
+                self.Stim2PlotCombo[-1].addItem(n, QtCore.QVariant(n))
             self.Stim2PlotCombo[-1].currentIndexChanged.connect(self.Stim2PlotChanged_Proc)
             self.PlotTypeTable.setCellWidget(k,1,self.Stim2PlotCombo[-1])
 
@@ -833,7 +766,8 @@ class BhvRasters(QtGui.QMainWindow):
 
         self.ax = []
         for k in range(1,self.naxes+1):
-            self.ax.append(self.main_fig.figure.add_subplot(self.AxNRows.value(), self.AxNCols.value(),k))
+            self.ax.append(self.main_fig.figure.add_subplot(self.AxNRows.value(),
+                                                            self.AxNCols.value(), k))
 
         if sys.platform == 'linux2':
             QtGui.QApplication.setStyle(QtGui.QStyleFactory.create('Plastique'))
@@ -888,8 +822,9 @@ class BhvRasters(QtGui.QMainWindow):
                     self.ReferenceCombo[indx].clear()
                     self.ReferenceCombo[indx].addItems(['RT1','RT2','RT3','RT4','RTT'])
                     self.Stim2PlotCombo[indx].clear()
-                    self.Stim2PlotCombo[indx].addItem('All')
-                    self.Stim2PlotCombo[indx].addItems(bhv.FindStims(self.Data))
+                    self.Stim2PlotCombo[indx].addItem('All', QtCore.QVariant('All'))
+                    for k in bhv.FindStims(self.Data):
+                        self.Stim2PlotCombo[indx].addItem(self.Data[k]['Descr'], QtCore.QVariant(k))
             self.Stim2PlotCombo[indx].setEnabled(True)
             self.SortByCombo[indx].setEnabled(False)
             self.OutcomeCombo[indx].setEnabled(False)
@@ -900,7 +835,8 @@ class BhvRasters(QtGui.QMainWindow):
                 self.Stim2PlotCombo[indx].clear()
                 self.Stim2PlotCombo[indx].addItem('All', QtCore.QVariant('All'))
                 for l in bhv.FindStims(self.Data):
-                        self.Stim2PlotCombo[indx].addItem(self.Data[l]['Descr'], QtCore.QVariant(l))
+                    self.Stim2PlotCombo[indx].addItem(self.Data[l]['Descr'], QtCore.QVariant(l))
+                    
             self.Stim2PlotCombo[indx].setEnabled(True)
             self.SortByCombo[indx].setEnabled(False)
             self.OutcomeCombo[indx].setEnabled(False)
@@ -938,7 +874,7 @@ class BhvRasters(QtGui.QMainWindow):
                 if hasattr(self, 'Data'):
                     for l in bhv.FindStims(self.Data):
                         self.Stim2PlotCombo[-1].addItem(self.Data[l]['Descr'], QtCore.QVariant(l))
-                self.PlotTypeTable.setCellWidget(k,1,self.Stim2PlotCombo[-1])
+                self.PlotTypeTable.setCellWidget(k, 1, self.Stim2PlotCombo[-1])
 
                 self.ReferenceCombo.append(QtGui.QComboBox(self))
                 self.ReferenceCombo[-1].addItems(['CentNP','Stim','NpExit','RpIn','1stLick'])
@@ -969,7 +905,6 @@ class BhvRasters(QtGui.QMainWindow):
             self.ax.append(self.main_fig.figure.add_subplot(self.AxNRows.value(), self.AxNCols.value(),k))
             
         self.Plot()
-        
 
     def GetFiles(self):
         self.selFiles.clear()        
@@ -1029,14 +964,14 @@ class BhvRasters(QtGui.QMainWindow):
         if Map==1:
             Resp=['Lick','RpIn']
         elif Map==2:
-            Resp=['HLick','HRpIn']
+            Resp=['Lick','RpIn']
 
-        self.MetaInfoTable.setItem(0,0,QtGui.QTableWidgetItem(Data['Subject']))
-        self.MetaInfoTable.setItem(1,0,QtGui.QTableWidgetItem(Data['File'].split('\\')[-1]))
-        self.MetaInfoTable.setItem(2,0,QtGui.QTableWidgetItem('%02d/%02d/%02d' % tuple(Data['StartDate'])))
-        self.MetaInfoTable.setItem(3,0,QtGui.QTableWidgetItem(Data['MSN']))
-        self.MetaInfoTable.setItem(4,0,QtGui.QTableWidgetItem(str(Data['Box'])))
-        self.MetaInfoTable.setItem(5,0,QtGui.QTableWidgetItem(str(Data['Group'])))
+        self.MetaInfoTable.setItem(0, 0, QtGui.QTableWidgetItem(Data['Subject']))
+        self.MetaInfoTable.setItem(1, 0, QtGui.QTableWidgetItem(Data['File'].split('\\')[-1]))
+        self.MetaInfoTable.setItem(2, 0, QtGui.QTableWidgetItem('%02d/%02d/%02d' % tuple(Data['StartDate'])))
+        self.MetaInfoTable.setItem(3, 0, QtGui.QTableWidgetItem(Data['MSN']))
+        self.MetaInfoTable.setItem(4, 0, QtGui.QTableWidgetItem(str(Data['Box'])))
+        self.MetaInfoTable.setItem(5, 0, QtGui.QTableWidgetItem(str(Data['Group'])))
 
         self.TWin = [self.TWin1.value(), self.TWin2.value()]
 
@@ -1064,7 +999,8 @@ class BhvRasters(QtGui.QMainWindow):
                     curax.invert_yaxis()
                 
             elif plottype == 'RT Dist':
-                if curax.yaxis_inverted(): curax.invert_yaxis()
+                if curax.yaxis_inverted():
+                    curax.invert_yaxis()
                 curax.set_autoscale_on(True)
                 
                 if self.Stim2PlotCombo[k].currentText() == 'All':
@@ -1075,7 +1011,6 @@ class BhvRasters(QtGui.QMainWindow):
 
                 for l in stims:
                     
-                    if 'RT' in locals(): del RT
                     if whatRT == 'RT1':
                         RT, _ = bhv.DistXY(Data[l]['StimTS'], Data[l]['NpOut'])
                     elif whatRT == 'RT2':
@@ -1086,12 +1021,12 @@ class BhvRasters(QtGui.QMainWindow):
                         RT = Data[l]['RT4']
                     elif whatRT == 'RTT':
                         RT = Data[l]['RTT']
-                    
-                    if 'RT' not in locals(): continue
+                    else:
+                        continue
 
                     color = self.StimColors[int(re.search('[0-9]',l).group())]
                     if self.RTPlotTypeCombo.currentText()=='Hist StepF':
-                        if RT.size>3:
+                        if RT.size > 3:
                             curax.hist(RT, self.HistNBins.value(), range=(0, self.HistTWin.value()), lw = 0,
                                        histtype='stepfilled', alpha = 0.8, label = Data[l]['Descr'],
                                        color=color)
@@ -1116,13 +1051,19 @@ class BhvRasters(QtGui.QMainWindow):
                             
                     elif self.RTPlotTypeCombo.currentText()=='PDFs':
                         if RT.size>3:
-                            y, x = stats.pdf(RT)
+                            pdf = gaussian_kde(RT)
+                            x = np.linspace(0, self.HistTWin.value(), 100)
+                            y = pdf(x)
+                            y = y/np.sum(y)
                             curax.plot(x, y, lw=5, label = Data[l]['Descr'], color=color)
                         else:
                             curax.plot([], label='_nolegend_')
                     elif self.RTPlotTypeCombo.currentText()=='CDFs':
                         if RT.size>3:
-                            y, x = stats.cpdf(RT)
+                            pdf = gaussian_kde(RT)
+                            x = np.linspace(0, self.HistTWin.value(), 100)
+                            y = np.cumsum(pdf(x))
+                            y = y/y[-1]
                             curax.plot(x, y, lw=5, label = Data[l]['Descr'], color=color)
                         else:
                             curax.plot([], label='_nolegend_')
@@ -1136,11 +1077,10 @@ class BhvRasters(QtGui.QMainWindow):
             elif plottype == 'Behavior':
                 
                 if ref == 'CentNP':
-                    _, indx = bhv.DistYX(Data[stim][TS],Data[stim]['NpIn'])
+                    _, indx = bhv.DistYX(Data[stim][TS], Data[stim]['NpIn'])
                     Ref = Data[stim]['NpIn'][indx]
                 elif ref == 'Stim':
                     Ref = Data[stim][TS]
-    
                 elif ref == 'NpExit':
                     _, indx = bhv.DistXY(Data[stim][TS], Data[stim]['NpOut'])
                     Ref = Data[stim]['NpOut'][indx]
@@ -1151,75 +1091,86 @@ class BhvRasters(QtGui.QMainWindow):
                     _, indx = bhv.DistXY(Data[stim][TS], Data[stim][Resp[0]])
                     Ref =  Data[stim][Resp[0]][indx]
 
-                l = ['No sort','CentNP','Stim','NpExit','RpIn','1stLick','3rdLick']
+                l = ['No sort','CentNP','Stim','NpExit','RpIn','1stLick','3rdLick']  
 
-##                for j,k in enumerate(l):
-##                    if l.index(ref) < l.index(k):
-##                    elif l.index(ref) < l.index(k)
-                    
-
+                # in case of no sort
                 if sortby == 'No sort' or ref==sortby:
                     RT = range(len(Ref))
-                
-                elif re.search('CentNP',sortby):
+                                   
+                elif re.search('CentNP', sortby):
                     if l.index(ref) < 1:
                         RT, indx = bhv.DistXY(Ref, Data[stim]['NpIn'])
                     elif l.index(ref) > 1:
                         RT, indx = bhv.DistYX(Ref, Data[stim]['NpIn'])
                     
-                elif re.search('Stim',sortby):
+                elif re.search('Stim', sortby):
                     if l.index(ref) < 2:
                         RT , indx = bhv.DistXY(Ref, Data[stim]['StimTS'])
                     elif l.index(ref)>2:
                         RT , indx = bhv.DistYX(Ref, Data[stim]['StimTS'])
                     
-                elif re.search('NpExit',sortby):
+                elif re.search('NpExit', sortby):
                     if l.index(ref) < 3:
                         RT, indx = bhv.DistXY(Ref, Data[stim]['NpOut'])
                     elif l.index(ref) > 3:
                         RT, indx = bhv.DistYX(Ref, Data[stim]['NpOut'])
 
-                elif re.search('RpIn',sortby):
+                elif re.search('RpIn', sortby):
                     if l.index(ref) < 4:
                         RT, indx = bhv.DistXY(Ref, Data[stim][Resp[1]])
                     elif l.index(ref) > 4:
                         RT, indx = bhv.DistYX(Ref, Data[stim][Resp[1]])
                         
-                elif re.search('1stLick',sortby):
+                elif re.search('1stLick', sortby):
                     if l.index(ref) < 5:
                         RT, indx = bhv.DistXY(Ref, Data[stim][Resp[0]])
                     elif l.index(ref) > 5:
                         RT, indx = bhv.DistYX(Ref, Data[stim][Resp[0]])
                         
-                elif re.search('3rdLick',sortby):
+                elif re.search('3rdLick', sortby):
                     res = bhv.GetHits(Data[stim][TS], Data[stim][Resp[0]])
                     if l.index(ref) < 6:         
                         RT, indx = bhv.DistXY(Ref, res['ThirdLickHitTS'])
                     elif l.index(ref) > 6:
                         RT, indx = bhv.DistYX(Ref, res['ThirdLickHitTS'])
                         
-                s   = np.argsort(RT)
-
+                s = np.argsort(RT)
+		
+                '''if sortby == 'RT0/NpExit':
+                    ipdb.set_trace()'''
+                    
                 if re.search('RT0', sortby):
-                    RT0,_=bhv.DistYX(Data[stim][TS], Data[stim]['NpIn'])
+                    RT0, _, _ = bhv.SparseDistance(Data[stim]['StimTS'], Data[stim]['NpIn'],
+                                                   direction = 'yx')
                     RT0  = np.round_(RT0, 3)
-                    uRT0 = np.unique(RT0)
-                    uRT0.sort()
+                    uRT0 = np.sort(np.unique(RT0))
                     s=[]
 
                     for k in uRT0:
-                        indx = np.flatnonzero(RT0==k)
+                        indx = np.flatnonzero(RT0 == k)
                         s.extend(indx[np.argsort(RT[indx])])
                         
                 yvar = self.YAxesVarCombo.currentText()
                 
-                Raster2(Ref[s], Data[stim][Resp[0]], yAxVar=yvar, TWin=self.TWin, axes=curax, color='k',alpha=0.5) 
-                Raster2(Ref[s], Data[stim]['NpIn'],  yAxVar=yvar, TWin=self.TWin, axes=curax, color='b',mew=2)
-                Raster2(Ref[s], Data[stim]['NpOut'], yAxVar=yvar, TWin=self.TWin, axes=curax, color='c',mew=2)
-                Raster2(Ref[s], Data[stim][Resp[1]], yAxVar=yvar, TWin=self.TWin, axes=curax, color='g',mew=2)
+                Raster3(Ref[s], Data[stim][Resp[0]], yAxVar=yvar,
+                        TWin=self.TWin, ax=curax, color=[.5,.5,.5], alpha=0.5, lw = 1) 
+
+                Raster3(Ref[s], Data[stim]['NpIn'],  yAxVar=yvar,
+                        TWin=self.TWin, ax=curax, color='b', lw = 2)
+
+                Raster3(Ref[s], Data[stim]['NpOut'], yAxVar=yvar,
+                        TWin=self.TWin, ax=curax, color='c', lw = 2)
+
+                Raster3(Ref[s], Data[stim][Resp[1]], yAxVar=yvar,
+                        TWin=self.TWin, ax=curax, color='g', lw = 2)
+                        
                 if Data[stim].has_key('Solnd'):
-                    Raster2(Ref[s], Data[stim]['Solnd'], yAxVar=yvar, TWin=self.TWin, axes=curax, color='r',mew=2)
-                Raster2(Ref[s], Data[stim]['StimTS'], yAxVar=yvar, TWin=self.TWin, axes=curax, color='k',mew=2)
+                    Raster3(Ref[s], Data[stim]['Solnd'], yAxVar=yvar,
+                            TWin=self.TWin, ax=curax, color='r', lw=2)
+
+                Raster3(Ref[s], Data[stim]['StimTS'], yAxVar=yvar,
+                        TWin=self.TWin, ax=curax, color='k', lw=2)
+
                 curax.set_title(Data[stim]['Descr'])
 
                 if yvar == 'Trial':
@@ -1234,9 +1185,7 @@ class BhvRasters(QtGui.QMainWindow):
             elif plottype=='Perf Evol':
                 '''Performs a circular convolution to obtain the hit rate'''
                 if curax.yaxis_inverted(): curax.invert_yaxis()
-                
-                handles = []
-                
+                                
                 ktype = str(self.KernelType.currentText())
                 ksize = self.KernelSize.value()
                 
@@ -1248,7 +1197,7 @@ class BhvRasters(QtGui.QMainWindow):
                 if self.Stim2PlotCombo[k].currentText() == 'All':
                     stims  = bhv.FindStims(Data)
                 else:
-                    stims = [str(self.Stim2PlotCombo[k].itemData(self.Stim2PlotCombo[k].currentIndex()).toString())]
+                    stims = [self.Stim2PlotCombo[k].itemData(self.Stim2PlotCombo[k].currentIndex()).toString()]
                 
                 for l in stims:
                     color = self.StimColors[int(re.search('[0-9]',l).group())]
@@ -1286,11 +1235,474 @@ class BhvRasters(QtGui.QMainWindow):
             
 ########################################################################################################################
 
-def BilateralTask():
+class LearningCurveGUI(QtGui.QWidget):
+    
+    def __init__(self, BhvDir = ''):
+        self.BhvDir = BhvDir
+        QtGui.QWidget.__init__(self)
+        self.setWindowTitle("Learning Curve Explorer")
+        
+        mainLay = QtGui.QHBoxLayout(self)
+        
+        splitter1 = QtGui.QSplitter(QtCore.Qt.Horizontal)
+        frame1 = QtGui.QFrame()
+        frame1.setFrameStyle(QtGui.QFrame.StyledPanel)
+        
+        vLayFrame1 = QtGui.QVBoxLayout(frame1)
+        
+        # regular expression combo box
+        grp = QtGui.QGroupBox('Search Files')
+        vLay = QtGui.QVBoxLayout(grp)
+        # rat name combobox        
+        self.RatNameCombo = QtGui.QComboBox(self)
+        self.RatNameCombo.addItems(bhv.GetRatNames(pth = BhvDir))
+        self.RatNameCombo.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
+        hLay = QtGui.QHBoxLayout()
+        hLay.setMargin(0)
+        hLay.addWidget(QtGui.QLabel('Select Rat Name'))
+        hLay.addWidget(self.RatNameCombo)
+        vLay.addLayout(hLay)
+        
+        self.RegExpText = QtGui.QTextEdit()
+        self.defaultRegExp = 'NP0[0-4](A)?_(RSip|LSip|CentWht|CWht|[0-9]{1,2}K|NOISE|CLICK)R_(RSip|LSip|CentWht|CWht|[0-9]{1,2}K|NOISE|CLICK)L'
+        self.RegExpText.setText(self.defaultRegExp)
+        self.RegExpText.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
+        self.RegExpText.setMaximumHeight(60)
+        vLay.addWidget(self.RegExpText)
+         # add a 'set default reg exp' button
+        self.setDefaultRegExpBtn = QtGui.QPushButton('Reset Reg Exp')
+        self.setDefaultRegExpBtn.clicked.connect(self.setDefaultRegExpProc)
+        vLay.addWidget(self.setDefaultRegExpBtn)
+        
+        self.dateCheck = QtGui.QCheckBox('Include Sessions After:')
+        self.dateEdit = QtGui.QDateEdit()
+        self.dateEdit.setDate(QtCore.QDate(2011,1,1))
+        hLay = QtGui.QHBoxLayout()
+        hLay.setMargin(0)
+        hLay.addWidget(self.dateCheck)
+        hLay.addWidget(self.dateEdit)
+        vLay.addLayout(hLay)
+        
+        self.searchFilesBtn = QtGui.QPushButton('Search Files')
+        self.searchFilesBtn.clicked.connect(self.searchFilesProc)
+        self.searchFilesBtn.setStyleSheet('QPushButton{background-color: rgba(243,134,48)}')
+        vLay.addWidget(self.searchFilesBtn)
+                
+        
+        self.filesTable = QtGui.QTableWidget(0, 1)
+        self.filesTable.verticalHeader().setVisible(False)
+        self.filesTable.setHorizontalHeaderLabels(['Include Files'])
+        self.filesTable.setColumnWidth(0, 300)
+        #self.filesTable.horizontalHeader().setVisible(False)
+        self.filesTable.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Expanding)
+        vLay.addWidget(self.filesTable)
+        
+        '''self.selectBtn = QtGui.QPushButton('Include All')
+        self.selectBtn.setCheckable(True)
+        self.selectBtn.clicked.connect(self.selectProc)
+
+        self.selectInvertBtn = QtGui.QPushButton('Toggle Sel')
+        self.selectInvertBtn.clicked.connect(self.selectInvertProc)
+        hLay = QtGui.QHBoxLayout()
+        hLay.setMargin(0)
+        hLay.addWidget(self.selectBtn)
+        hLay.addWidget(self.selectInvertBtn)
+        vLay.addLayout(hLay)'''
+        
+        vLayFrame1.addWidget(grp)
+        
+        # include RTs checkbox
+        grp = QtGui.QGroupBox('Plot options')
+        
+        grpLay = QtGui.QGridLayout(grp)
+        
+        # Raw vs proportion plot
+        self.PlotOptionCheck = QtGui.QCheckBox('Raw / Proportion')
+        self.PlotOptionCheck.setChecked(True)
+        grpLay.addWidget(self.PlotOptionCheck, 0, 0, 1, 4)
+        
+        self.IncRTCheck = []
+        
+        self.IncRTCheck.append(QtGui.QCheckBox('RT1'))
+        self.IncRTCheck[-1].setChecked(True)
+        grpLay.addWidget(self.IncRTCheck[-1], 1, 0)
+        
+        self.IncRTCheck.append(QtGui.QCheckBox('RT2'))
+        self.IncRTCheck[-1].setChecked(True)
+        grpLay.addWidget(self.IncRTCheck[-1], 1, 1)
+        
+        self.IncRTCheck.append(QtGui.QCheckBox('RT3'))
+        self.IncRTCheck[-1].setChecked(True)
+        grpLay.addWidget(self.IncRTCheck[-1], 1, 2)
+        
+        self.IncRTCheck.append(QtGui.QCheckBox('RT4'))
+        self.IncRTCheck[-1].setChecked(True)
+        grpLay.addWidget(self.IncRTCheck[-1], 1, 3)
+        
+        # add a plot button
+        self.PlotBtn = QtGui.QPushButton('Plot')
+        self.PlotBtn.clicked.connect(self.Plot)
+        self.PlotBtn.setStyleSheet('QPushButton{background-color: rgba(0,190,0)}')
+        grpLay.addWidget(self.PlotBtn, 2, 0, 1, 2)
+        
+        self.saveFigBtn = QtGui.QPushButton('Save Figure')
+        self.saveFigBtn.clicked.connect(self.saveFigProc)
+        self.saveFigBtn.setStyleSheet('QPushButton{background-color: rgba(8,107,154)}')
+        grpLay.addWidget(self.saveFigBtn, 2, 2, 1, 2)
+        
+        vLayFrame1.addWidget(grp)
+        #vLayFrame1.addStretch(1)
+        
+        # add a settings button
+        self.settingsBtn = QtGui.QPushButton('Settings')
+        self.settingsBtn.clicked.connect(self.settingsProc)
+        vLayFrame1.addWidget(self.settingsBtn)
+        
+        splitter1.addWidget(frame1)        
+        
+        frame2 = QtGui.QFrame()
+        frame2.setFrameStyle(QtGui.QFrame.StyledPanel)
+        vLayFrame2 = QtGui.QVBoxLayout(frame2)
+        vLayFrame2.setMargin(0)
+        vLayFrame2.setSpacing(0)
+        
+        # add a figure and a toolbar
+        self.MainFig = MplWidget()
+        self.Ntb = NavToolbar(self.MainFig, self)
+        self.Ntb.setIconSize(QtCore.QSize(15,15))
+        #vLayFrame2.addLayout(gLay)
+        vLayFrame2.addWidget(self.MainFig)
+        vLayFrame2.addWidget(self.Ntb)
+        
+        splitter1.addWidget(frame2)
+        
+        mainLay.addWidget(splitter1)
+        # if running in linux set a certain style for the buttons and widgets
+        if sys.platform == 'linux2':
+            QtGui.QApplication.setStyle(QtGui.QStyleFactory.create('Plastique'))
+
+        # finally show the entire gui            
+        self.show()
+        
+    def setDefaultRegExpProc(self):
+        self.RegExpText.setText(self.defaultRegExp)
+        
+    def selectProc(self):
+        if self.filesTable.rowCount() == 0:
+            return
+            
+        state = self.selectBtn.isChecked()
+        
+        if state:
+            self.selectBtn.setText('All Selected')
+        else:
+            self.selectBtn.setText('None Selected')
+        
+        for n in self.includeFileChecks:
+            n.setChecked(state)
+            
+    def selectInvertProc(self):
+        if self.filesTable.rowCount() == 0:
+            return
+        
+        for n in self.includeFileChecks:
+            n.setChecked(not n.checkState())
+        
+    def searchFilesProc(self):
+        
+        from datetime import date
+        
+        RatName = str(self.RatNameCombo.currentText())
+        Task    = str(self.RegExpText.toPlainText())
+        self.files, MSN = bhv.GetFilenames(RatName, Task, self.BhvDir)
+        
+        for n in reversed(range(self.filesTable.rowCount())):
+            self.filesTable.removeRow(n)
+            
+        # delete checkboxes
+        if hasattr(self, 'includeFileChecks') and len(self.includeFileChecks) > 0:
+            for n in self.includeFileChecks:
+                n.deleteLater()
+                
+        self.includeFileChecks = []
+        
+        if self.dateCheck.checkState():
+            dateRef = self.dateEdit.date().toPyDate()
+        else:
+            dateRef = date(2000,1,1)
+            
+        for n, f in enumerate(self.files):
+            self.filesTable.insertRow(n)            
+            f = os.path.split(f)[1]
+            self.includeFileChecks.append(QtGui.QCheckBox(f))
+            self.includeFileChecks[-1].setFont(QtGui.QFont('', pointSize=8))
+            self.filesTable.setCellWidget(n,0, self.includeFileChecks[-1])
+            self.filesTable.setRowHeight(n, 20)
+            
+            dateStr = re.search('[0-9]{6}', f).group()
+            dateFile = date(int(dateStr[0:2]) + 2000, int(dateStr[2:4]), int(dateStr[4:]))
+                
+            if dateFile >= dateRef:
+                self.includeFileChecks[-1].setChecked(True)            
+            
+        self.filesTable.setAlternatingRowColors(True)
+    
+    def saveFigProc(self):
+        fname = str(QtGui.QFileDialog.getSaveFileName(caption = 'Save a copy of the figure ...'))
+        
+        if fname:
+            self.MainFig.figure.savefig(fname, dpi = 300, format = 'svg')
+        
+    def settingsProc(self):
+        if settings.edit():
+            pass
+        
+    def Plot(self):
+        
+        if self.filesTable.rowCount() == 0:
+            self.searchFilesProc()
+            
+        RatName = str(self.RatNameCombo.currentText())
+        Task    = str(self.RegExpText.toPlainText())
+        files, MSN = bhv.GetFilenames(RatName, Task, self.BhvDir)
+        CalcType   = self.PlotOptionCheck.checkState()
+        IncRTs     = self.IncRTCheck[0].checkState()
+        
+        files = []
+        for k in self.includeFileChecks:
+            if k.checkState():
+                files.append(os.path.join(self.BhvDir, str(k.text())))
+        
+        # create dictionaries to hold hits, miss and error, and colors
+        keys = ['Tone1', 'Tone2', 'RSipLight', 'LSipLight', 'WhtFLight', 'Catch']
+        col  = ['b', 'g', 'b', 'g', 'r', [.5, .5, .5]]
+        tmp = {}; colors = {}        
+        for c, k in zip(col, keys):
+            tmp[k]    = []
+            colors[k] = c
+
+        # create a dictionary for every type of rection time
+        RTs = ['RT1','RT2','RT3']
+        RTDict = {}
+        for k in RTs: RTDict[k] = {}
+            
+        # create lists to hold data
+        MSN = []; dates = []; R = []; L = []
+        
+        if RatName == '':
+            initialDate = dtm(year = 2012, month = 11, day = 29)
+            exclude = [dtm(2012, 12, 13), dtm(2013, 4, 1)]
+        else:
+            initialDate = dtm(1,1,1)
+            exclude = []
+        
+        # iterate over files to extract the information
+        for j,k in enumerate(files):
+            
+            Data  = bhv.LoadBehFile(k)  # load the data
+            Stims = bhv.FindStims(Data) # find stimuli
+            date  = Data['StartDate']   # get session date and transform it to a date format
+            date  = dtm(year = date[2]+2000, month = date[0], day = date[1])
+        
+            # this is if one wants to exlude some sessions, or include sessions
+            # after a certain date
+            if date < initialDate or date in exclude: continue
+        
+            # store date and trining protocol
+            dates.append(Data['StartDate'])
+            MSN.append(Data['MSN'])
+        
+            # iterate over stimuli to extract RTs and performance info
+            for m, n in enumerate(Stims):
+                
+                # get the number of errors
+                if Data[n].has_key('ErrTS'):
+                    eSize = np.array(Data[n]['ErrTS']).size
+                else:
+                    eSize = 0
+        
+                if Data[n]['Descr'] not in tmp:
+                    tmp[Data[n]['Descr']] = []
+                # append the number of hits, miss and errors
+                tmp[Data[n]['Descr']].append([j,
+                                              np.array(Data[n]['HitsTS']).size,
+                                              eSize,
+                                              np.array(Data[n]['MissTS']).size])
+        
+                # Extract RTs
+                # create a key inside each dictionary if it doesn't exists
+                key = Data[n]['Descr']
+                for r in RTs:
+                    if not RTDict[r].has_key(key):
+                        RTDict[r][key] = []
+        
+                    # create a key to hold the session number for a particular RT
+                    if not RTDict[r].has_key('x_'+key):
+                        RTDict[r]['x_'+key] = []
+        
+                    if key != 'Catch':
+                        # get the reaction times
+                        # this is to eliminate weird RTs coming from a bug in my Med-PC code
+                        Data[n][r] = np.array(Data[n][r])
+                        if Data[n][r].size > 1 and np.any( Data[n][r] > 0.3 ):
+                            RT = Data[n][r][ Data[n][r] < 3.0 ]
+                        else:
+                            RT = Data[n][r]
+                    else:
+                        RT, x,y = bhv.SparseDistance(Data[n]['StimTS'], Data[n]['NpOut'])
+                        
+                    RTDict[r][key].append(RT)
+        
+                    # get the session number
+                    RTDict[r]['x_'+key].append(j)
+
+        
+            # get the catchs for the left and the right
+            lCatch = [k for k in bhv.FindStims(Data) if Data[k]['Descr'] == 'Catch']
+            if len(lCatch) > 0:
+                n = lCatch[0]
+                RLick = Data['EventTS'][np.flatnonzero(Data['EventName'] == 'RightLickOn')][0]
+                LLick = Data['EventTS'][np.flatnonzero(Data['EventName'] == 'LeftLickOn')][0]
+                
+                R.append([j,
+                          Data[n]['StimTS'].size,
+                          bhv.GetHits(Data[n]['StimTS'], RLick)['StimHitsIndx'].size])
+                L.append([j,
+                          Data[k]['StimTS'].size,
+                          bhv.GetHits(Data[n]['StimTS'], LLick)['StimHitsIndx'].size])
+            else:
+                R.append([j, np.nan, np.nan])
+                L.append([j, np.nan, np.nan])
+        
+        
+        #v = 1000
+        for k in tmp.keys():
+            tmp[k] = np.array(tmp[k])
+        '''    if tmp[k].size > 0 and v > tmp[k][:,0].min():
+                v = tmp[k][:,0].min()'''
+                
+        for k in tmp.keys():
+            if tmp[k].size > 0:
+                tmp[k][:,0] = tmp[k][:,0]# - v
+        
+        R = np.array(R); R[:,0] = R[:,0]#-v
+        L = np.array(L); L[:,0] = L[:,0]#-v
+        
+        # set some parameters
+        s = range(len(dates)); lw = 6; ms = 10; a = 0.7
+        
+        # clear the figure and create new axes
+        fig = self.MainFig.figure
+        fig.clf()
+        ax  = fig.add_subplot(111)
+        
+        
+        # change the labels to reflect the stimulus - outcome association                
+        for k in keys[0:-1]:
+            t = tmp[k]
+            if not np.all(np.isnan(t)):
+                if k == 'Tone1':
+                    label = k+'--> Right'
+                elif k == 'Tone2':
+                    label = k+'--> Left'
+                elif k == 'WhtFLight':
+                    label = k+'--> Right'
+                else:
+                    label = k
+        
+                if CalcType:
+                    ax.plot(t[:,0], t[:,1]/np.float32((t[:,1]+t[:,2])+t[:,3]),'-o',
+                            ms=ms, mew = 0, lw=lw, alpha=a, label=label)
+                else:
+                    ax.plot(t[:,0], t[:,1],'-o',
+                            ms=ms, mew = 0, lw=lw, alpha=a, label=label)
+
+        
+        # plot the catch trials as a proportion
+        if CalcType:
+            
+            ax.plot(R[:,0], R[:,2]/np.float32(R[:,1]), '--o', color = 'b',
+                    ms=ms, mew = 0, lw=lw, alpha=a, label='catch R')
+            ax.plot(L[:,0], L[:,2]/np.float32(L[:,1]), '--o', color = 'g',
+                    ms=ms, mew = 0, lw=lw, alpha=a, label='catch L')
+        
+        # ... or as raw data
+        else:
+            ax.plot(R[:,0], R[:,2], '--o', color = 'b',
+                    ms=ms, mew = 0, lw=lw, alpha=a, label='catch R')
+            ax.plot(L[:,0], L[:,2], '--o', color = 'g',
+                    ms=ms, mew = 0, lw=lw, alpha=a, label='catch L')
+        
+        # put a dotted line before the first session of the white light
+        if not np.all(np.isnan(tmp['WhtFLight'])):
+            ax.axvline(tmp['WhtFLight'][0][0]-0.5, color='k', alpha=0.5, linestyle='--', lw=3)
+            
+        
+        # title and labels
+        ax.set_title('%s %s' % (RatName, Task))
+        ax.set_xlabel('Session Date')
+        
+        # y label for proportion of trials
+        if CalcType:
+            ax.set_ylabel('Proportion of Trials')
+            ax.set_ylim(-0.05, 1.05)
+            ax.axhline(0.5, 0, 10, lw = 2, linestyle = '--', color='k', alpha = 0.5)
+            ax.axhline(1.0, 0, 10, lw = 2, linestyle = '--', color='k', alpha = 0.5)
+            ax.axhline(0.0, 0, 10, lw = 2, linestyle = '--', color='k', alpha = 0.5)
+        else:
+            ax.set_ylabel('Number of Trials')
+        
+        # set the x axis tick marks to be the training dates
+        ax.set_xticks(s)
+        ax.set_xticklabels(['%02d-%02d-%d' % (k[0],k[1],k[2]) for k in dates],
+                           rotation = 30, horizontalalignment = 'right', fontsize = 9)
+        
+        # iterate over tick labels, if monday change to bold red
+        for j,k in zip(ax.get_xmajorticklabels(), dates):
+            if dtm(k[2],k[0],k[1]).isoweekday() == 1: # check whether it is a monday
+                j.set_color('r')
+                j.set_weight('bold')
+
+        
+        # if selected, plot RT1 for each stimuli
+        # ... I should add an option to select different RTs ...
+        if IncRTs:
+            ax2 = ax.twinx() # create a y axis
+            r = 'RT1'
+            for k in RTDict[r]:
+                if k.find('x_') != 0:
+                    x = RTDict[r]['x_'+k]# - v
+                    ax2.plot(x ,[np.array(n).mean() for n in RTDict[r][k]],
+                                  color = colors[k], lw = 3, label = k)
+                    ci = np.array([bootci(n, 100) for n in RTDict[r][k]])
+                    ax2.fill_between(x, ci[:,0], ci[:,1], alpha = 0.5, color = colors[k])
+            ax2.set_ylabel('Time (sec)')
+            ax2.set_ylim(0, 1.0)
+        
+        # grid and limits
+        ax.grid(axis = 'both')
+        ax.set_xlim(-1, s[-1]+1)
+        
+        # make the first axes' background transparent ad raise it
+        #ax.set_axis_bgcolor('none')
+        #ax.set_zorder(10)
+        
+        # handler for the legend. The legend corresponds to the first axes
+        #leg = ax.legend(loc='lower left', shadow=True, prop={'size':12}, fancybox = True)
+        #leg.set_zorder(100)
+        #leg.draggable()
+        
+        fig.tight_layout()
+        fig.canvas.draw()
+        
+########################################################################################################################        
+
+
+def BilateralTask(pth):
 
     import datetime as dtime
     
-    ratNames = bhv.GetRatNames(prefix = 'HMV', pth = BhvDir)
+    ratNames = bhv.GetRatNames(prefix = 'HMV', pth = pth)
 
     class SetParams(dt.DataSet):
         RatName  = di.ChoiceItem('Choose a Rat', ratNames )
@@ -1304,7 +1716,7 @@ def BilateralTask():
     if Params.edit()==1:
         RatName    = ratNames[Params.RatName]
         Task       = Params.Task
-        files, MSN = bhv.GetFilenames(RatName, RegExp=Task, BhvDir = BhvDir)
+        files, MSN = bhv.GetFilenames(RatName, RegExp=Task, BhvDir = pth)
 
         Dates=[]
         # build a dictionary to hold all the data
@@ -1422,8 +1834,8 @@ def BilateralTask():
         plt.subplot(2,2,2)
 
         x  = np.arange(1, len(Stim0)+1)
-        b1 = plt.barh(x, nR[:,0], height=h, left=0,       align='center',color=col[0], alpha=a)
-        b2 = plt.barh(x, nR[:,1], height=h, left=nR[:,0], align='center',color=col[2], alpha=a)
+        b1 = plt.barh(x, nR[:,0], height=h, left=0,       align='center', color=col[0], alpha=a)
+        b2 = plt.barh(x, nR[:,1], height=h, left=nR[:,0], align='center', color=col[2], alpha=a)
 
         x  = np.arange(1, len(Stim1)+1)
         b1 = plt.barh(x, -nL[:,0], height=h, left=0,        align='center', color=col[0], alpha=a)
@@ -1591,26 +2003,24 @@ def Sessions_NHits_NMiss_NError(Stims=[], horizontal=True, labels=[], axes=[],
         
 def PlotBeh(Data):
     import matplotlib.pyplot as p
-    from matplotlib import rc
-    import re
 
-    Stims=[k for k in Data.keys() if k.find('Stim')!=-1]
+    Stims = [k for k in Data.keys() if k.find('Stim')!=-1]
 
     rc('font',size=8)
     rc('font',family='serif')
 
-    if GetMapping(Data)==1:
+    if bhv.GetMapping(Data)==1:
 
         p.figure(facecolor='w',dpi=100,figsize=(8,3.5))
-        RTT=Stim['RTT']
-        sRT=np.argsort(RTT)
-        RT0=Stim['RT0'][sRT]
-        RT1=Stim['RT1'][sRT]
-        RT2=Stim['RT2'][sRT]
-        RT3=Stim['RT3'][sRT]
+        RTT = Stim['RTT']
+        sRT = np.argsort(RTT)
+        RT0 = Stim['RT0'][sRT]
+        RT1 = Stim['RT1'][sRT]
+        RT2 = Stim['RT2'][sRT]
+        RT3 = Stim['RT3'][sRT]
 
-        nTrials=len(Stim['RTT'])
-        y=range(nTrials)
+        nTrials = len(Stim['RTT'])
+        y = range(nTrials)
 
         p.plot(-RT0,y,'c.',markeredgecolor='c')
         p.plot(np.zeros(nTrials),y,'k.',markeredgecolor='k')
@@ -1635,10 +2045,10 @@ def PlotBeh(Data):
                 y=range(nTrials)
                 p.plot(np.zeros(nTrials),y,'k.',markeredgecolor='k')
 
-                RT0=Data[k]['RT0c'][sRT]
-                RT1=Data[k]['RT1c'][sRT]
-                RT2=Data[k]['RT2c'][sRT]
-                RT3=Data[k]['RT3c'][sRT]
+                RT0 = Data[k]['RT0c'][sRT]
+                RT1 = Data[k]['RT1c'][sRT]
+                RT2 = Data[k]['RT2c'][sRT]
+                RT3 = Data[k]['RT3c'][sRT]
 
                 p.ylim=(-1,RTT.size*1.1)
                 p.plot(-RT0,y,'c.',markeredgecolor='c')
@@ -1680,75 +2090,41 @@ def PlotBeh(Data):
 
 def PlotRTStats(Stim):
     import matplotlib.pyplot as p
-    from matplotlib import rc
-    import re
 
     rc('font',size=8)
     rc('font',family='serif')
 
-    k=Stim.keys()
-    for x in k:
-        if re.search('RT[0-9][c,i]',x):
+    for x in Stim.keys():
+        if re.search('RT[0-9][c,i]', x):
             m=2
             break
         else:
             m=1
 
     if m==1:
+        keys = ['RT1','RT2','RT3']
+    elif m == 2:
+        keys = ['RT1c','RT2c','RT3c']
+        
+    fig = p.figure(facecolor='w', dpi=100, figsize=(8,3.5))
 
-        p.figure(facecolor='w',dpi=100,figsize=(8,3.5))
-
-        p.subplot(321)
-        p.hist(Stim['RT1'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.subplot(322)
-        p.boxplot(Stim['RT1'],notch=1,sym='')
-        p.grid(True)
-
-        p.subplot(323)
-        p.hist(Stim['RT2'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.subplot(324)
-        p.boxplot(Stim['RT2'],notch=1,sym='')
-        p.grid(True)
-
-        p.subplot(325)
-        p.hist(Stim['RT3'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.subplot(326)
-        p.boxplot(Stim['RT3'],notch=1,sym='')
-        p.grid(True)
-
-        p.show()
-
-    elif m==2:
-
-        p.figure(facecolor='w',dpi=100,figsize=(8,3.5))
-
-        p.subplot(321)
-        p.hist(Stim['RT1c'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.xlabel('Time (sec)',fontsize=10)
-        p.subplot(322)
-        p.boxplot(Stim['RT1c'],notch=1,sym='')
-        p.grid(True)
-
-        p.subplot(323)
-        p.hist(Stim['RT2c'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.xlabel('Time (sec)',fontsize=10)
-        p.subplot(324)
-        p.boxplot(Stim['RT2c'],notch=1,sym='')
-        p.grid(True)
-
-        p.subplot(325)
-        p.hist(Stim['RT3c'],50,histtype='stepfilled'), p.xlim(-.5,1.5)
-        p.xlabel('Time (sec)',fontsize=10)
-        p.subplot(326)
-        p.boxplot(Stim['RT3c'],notch=1,sym='')
-        p.grid(True)
+    for j, k in enumerate(keys):
+        ax = fig.add_subplot(3, 2, 2*(j+1)-1)
+        ax.hist(Stim[k], 50, histtype='stepfilled')
+        ax.set_xlim(-.5,1.5)
+        ax.grid(True)
+        
+        ax = fig.add_subplot(3, 2, 2*(j+1))
+        ax.boxplot(Stim[k],notch=1, sym='')
+        ax.grid(True)
+                
+    fig.show()
 
 ########################################################################################################################
 
 def SaveFigure(FigHandles=[],FigName='Fig_',dpi=300, SaveDir='', Format='.jpg'):
 
     '''Helper function to save figures'''
-    from matplotlib.figure import Figure
     if not isinstance(FigHandles,list): FigHandles=[FigHandles]
     if not FigHandles or not [isinstance(k,Figure) for k in FigHandles]:
         import matplotlib._pylab_helpers
@@ -1772,14 +2148,16 @@ def SaveFigure(FigHandles=[],FigName='Fig_',dpi=300, SaveDir='', Format='.jpg'):
             Params = SetParams()
             
             if Params.edit() == 1 and len(Params.Figures)>0:
-                FigHandles=[FigHandles[k] for k in Params.Figures]
-                Format=['.jpg','.png','.svg','.pdf'][Params.Format]
-                SaveDir=Params.ImgDir
-                dpi=Params.dpi
+                FigHandles = [FigHandles[k] for k in Params.Figures]
+                Format  = ['.jpg','.png','.svg','.pdf'][Params.Format]
+                SaveDir = Params.ImgDir
+                dpi     = Params.dpi
+                
                 if not Params.FigName:
                     FigName='Fig_'
                 else:
                     FigName=Params.FigName
+                    
             else:
                 return
         else:
@@ -1788,7 +2166,7 @@ def SaveFigure(FigHandles=[],FigName='Fig_',dpi=300, SaveDir='', Format='.jpg'):
     for k in FigHandles:
         plt.figure(k.number)
         plt.savefig(os.path.join(SaveDir,FigName+'_'+str(k.number)+Format),
-                dpi=dpi)
+                    dpi = dpi)
 
 ########################################################################################################################
 
@@ -1817,11 +2195,10 @@ def Outliers4Skew(x):
     Lower     = p[0]-1.5*np.exp(-3.5*MedCouple)*IQR
     Upper     = p[1]+1.5*np.exp( 4.0*MedCouple)*IQR
 
-    return MedCouple,Lower,Upper
+    return MedCouple, Lower, Upper
 
 ########################################################################################################################
 
-# Bootstrap 95% confidence interval calculation function
 def bootci(Data, nSamples = 1000, Stat=['mean','median'][0], alpha = 5):
     '''Calculates the confidence interval by generating
     nSamples with replacement from a population'''
